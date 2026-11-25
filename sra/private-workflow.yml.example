@@ -1,0 +1,31 @@
+# TEMPLATE ONLY. Do not install in the public repository.
+# Install in a separately controlled PRIVATE runtime repository after review.
+name: SRA private acknowledgement
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: sra-live-single-runner
+  cancel-in-progress: false
+jobs:
+  acknowledge:
+    if: github.ref == 'refs/heads/main' && vars.SRA_ENABLED == 'yes'
+    runs-on: ubuntu-24.04
+    environment: sra-live
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+          submodules: false
+      - run: python3 -I sra/acknowledge.py --self-test
+      - name: Acknowledge privately
+        env:
+          SRA_TOKEN: ${{ secrets.SRA_TOKEN }}
+          SRA_ACTOR_LOGIN: ${{ vars.SRA_ACTOR_LOGIN }}
+          SRA_ACTOR_ID: ${{ vars.SRA_ACTOR_ID }}
+          SRA_ENABLED: 'yes'
+        run: python3 -I sra/acknowledge.py --poll
