@@ -1,0 +1,8 @@
+cff-version: 1.2.0
+message: "If you refer to this experimental work, please cite the repository and exact commit or release used."
+title: "Agent Authority and Collaboration Safeguards"
+type: software
+authors:
+  - name: "amechi-ai"
+repository-code: "https://github.com/amechi-ai/ai-agent-safeguards"
+abstract: "Experimental behavioural protocol, technical specification and offline Python reference model. Operational security is not established."
