@@ -20,4 +20,12 @@ python3 -I safeguard_prototype.py -v
 No external dependencies are required. Do not deploy this in-process fixture as an agent security boundary. Use synthetic data, test identities and isolated environments for future adversarial testing; avoid real credentials and live third-party effects.
 
 ## Contributing
-Criticise the protocol, propose concrete revisions, provide reproducible tests, report residual risks and measure effects on legitimate work. Distinguish behavioural compliance, host enforcement, and evidence of real-world outcomes. See [CONTRIBUTING.md](CONTRIBUTING.md) for suggested contribution and safe testing practices. A licence has not yet been selected; public availability alone does not grant general reuse rights.
+Criticise the protocol, propose concrete revisions, provide reproducible tests, report residual risks and measure effects on legitimate work. Distinguish behavioural compliance, host enforcement, and evidence of real-world outcomes. See [CONTRIBUTING.md](CONTRIBUTING.md) for suggested contribution and safe testing practices. The owner has conditionally approved Apache-2.0 for software and CC BY 4.0 for original documentation. No licence grant is effective through this notice: rights verification and third-party exclusions remain pending. See [LICENSING.md](LICENSING.md).
+
+## Start here and contribute
+- [Copy-and-paste foundational safeguards](AGENT_SAFEGUARD_PROTOCOL.md) — accessible ten-point adaptation; not independently validated as a whole.
+- [Validation status](VALIDATION_STATUS.md) and [research roadmap](ROADMAP.md).
+- [Project governance](GOVERNANCE.md), [security reporting](SECURITY.md), [code of conduct](CODE_OF_CONDUCT.md), and [citation metadata](CITATION.cff).
+- [Proposed alpha release notes](RELEASE_NOTES_v0.4.0-alpha.1.md) and [changelog](CHANGELOG.md).
+
+The proposed CI workflow runs only the standard-library fixture tests; it does not certify security or run the 37 implementation scenarios.
