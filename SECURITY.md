@@ -2,6 +2,18 @@
 
 This is an experimental specification and in-process Python fixture, not a deployed security boundary. No production version is supported.
 
+## Good-faith security research and safe harbour
+
+We welcome and authorise good-faith security research conducted within the scope and conditions of this policy.
+
+The Project Owner will not initiate or support legal action within the Project Owner's control against researchers solely for conducting and responsibly reporting security research in accordance with this policy.
+
+Research must be conducted in isolated, authorised environments using synthetic information and workloads, without compromising third-party systems, accessing protected information without permission or causing unauthorised external effects.
+
+This commitment applies only to activities and rights within the Project Owner's authority. It does not bind third parties, confer immunity from applicable law or authorise testing against systems that the Project Owner does not own or control.
+
+Where the scope of a proposed research activity is uncertain, researchers are encouraged to seek clarification before proceeding.
+
 ## Reporting
 Private vulnerability reporting must remain enabled for this repository. Use the following reporting channels, in order of preference:
 
