@@ -9,7 +9,7 @@ from urllib.parse import urlencode
 
 BASE = "https://api.github.com"
 REPO = "/repos/amechi-ai/ai-agent-safeguards/security-advisories"
-OWNER = "amechi-ai"
+TEST_ACTOR = ("amechi-ai", 228866116)
 ACK = ("Thank you for submitting your report to the AI Agent Safeguards initiative. "
        "This automated message confirms receipt only; it does not validate or accept "
        "the reported vulnerability. Your report will be referred to the Project Owner "
@@ -20,6 +20,9 @@ LIMIT = 100
 MAX_WRITES = 10
 
 class Refusal(Exception):
+    pass
+
+class Incomplete(Refusal):
     pass
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -36,7 +39,9 @@ class API:
 
     def request(self, method, path, data=None):
         # Endpoints are constructed locally, never followed from response links.
-        if not path.startswith(REPO) or method not in ("GET", "POST"):
+        if not (method == "GET" and path == "/user") and (
+            not path.startswith(REPO) or method not in ("GET", "POST")
+        ):
             raise Refusal("endpoint outside scope")
         if method == "POST" and (
             not re.fullmatch(re.escape(REPO) + r"/GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}/comments", path)
@@ -59,10 +64,10 @@ class API:
                 return None
             raw = response.read(8 * 1024 * 1024 + 1)
             if len(raw) > 8 * 1024 * 1024:
-                raise Refusal("response size limit")
+                raise Incomplete("response size limit")
             result = json.loads(raw)
             if 'rel="next"' in response.headers.get("Link", ""):
-                raise Refusal("pagination requires human review")
+                raise Incomplete("pagination requires human review")
             return result
 
 def eligible(item):
@@ -76,24 +81,36 @@ def eligible(item):
             and item.get("closed_at", "missing") is None
             and item.get("withdrawn_at", "missing") is None)
 
-def already_acknowledged(comments):
+def verified_actor(api, expected):
+    user = api.request("GET", "/user")
+    if (not isinstance(user, dict) or not isinstance(user.get("login"), str)
+            or type(user.get("id")) is not int
+            or (user["login"].lower(), user["id"]) != expected):
+        raise Refusal("credential actor mismatch")
+    return expected
+
+def already_acknowledged(comments, actor):
     if not isinstance(comments, list) or len(comments) >= LIMIT:
-        raise Refusal("comment list incomplete")
+        raise Incomplete("comment list incomplete")
     for c in comments:
         if not isinstance(c, dict) or not isinstance(c.get("user"), dict):
-            raise Refusal("unexpected comment shape")
+            raise Incomplete("unexpected comment shape")
         # Ignore reporter-controlled text except exact equality and owner identity.
-        if c["user"].get("login", "").lower() == OWNER and c.get("body") == ACK:
+        user = c["user"]
+        if (isinstance(user.get("login"), str) and type(user.get("id")) is int
+                and (user["login"].lower(), user["id"]) == actor and c.get("body") == ACK):
             return True
     return False
 
-def process(api, live=False):
+def process(api, live=False, expected_actor=TEST_ACTOR):
+    actor = verified_actor(api, expected_actor)
     items = api.request("GET", REPO + "?" + urlencode(
         {"state": "triage", "per_page": LIMIT}))
     if not isinstance(items, list) or len(items) >= LIMIT:
         raise Refusal("advisory list incomplete")
     visited = set()
     writes = 0
+    incomplete = False
     for item in items:
         if not eligible(item):
             continue
@@ -105,8 +122,13 @@ def process(api, live=False):
         current = api.request("GET", path)
         if not eligible(current) or current["ghsa_id"] != ident:
             continue
-        comments = api.request("GET", path + "/comments?per_page=100")
-        if already_acknowledged(comments):
+        try:
+            comments = api.request("GET", path + "/comments?per_page=100")
+            if already_acknowledged(comments, actor):
+                continue
+        except Incomplete:
+            # Fail closed for this advisory; continue unrelated reports.
+            incomplete = True
             continue
         if not live:
             continue
@@ -118,6 +140,8 @@ def process(api, live=False):
             continue
         api.request("POST", path + "/comments", {"body": ACK})
         writes += 1
+    if incomplete:
+        raise Refusal("one or more advisory comment lists incomplete; owner review required")
 
 class Fake:
     def __init__(self, item=None, comments=None):
@@ -125,9 +149,11 @@ class Fake:
         self.comments = comments if comments is not None else []
         self.writes = []
     def request(self, method, path, data=None):
+        if path == "/user":
+            return {"login": TEST_ACTOR[0], "id": TEST_ACTOR[1]}
         if method == "POST":
             self.writes.append((path, data))
-            self.comments.append({"user": {"login": OWNER}, "body": ACK})
+            self.comments.append({"user": {"login": TEST_ACTOR[0], "id": TEST_ACTOR[1]}, "body": ACK})
             return None
         if path.startswith(REPO + "?"):
             return [self.item]
@@ -176,6 +202,32 @@ class Tests(unittest.TestCase):
         with self.assertRaises(Refusal):
             process(f, True)
         self.assertEqual(f.writes, [])
+    def test_actor_mismatch(self):
+        f = Fake()
+        with self.assertRaises(Refusal):
+            process(f, True, ("different", 999))
+        self.assertEqual(f.writes, [])
+    def test_actor_id_spoof(self):
+        f = Fake(comments=[{"user": {"login": TEST_ACTOR[0], "id": 999}, "body": ACK}])
+        process(f, True)
+        self.assertEqual(len(f.writes), 1)
+    def test_saturated_thread_isolated(self):
+        second = dict(fixture(), ghsa_id="GHSA-1111-2222-3333")
+        class Multi(Fake):
+            def request(self, method, path, data=None):
+                if path.startswith(REPO + "?"):
+                    return [self.item, second]
+                if path == REPO + "/" + second["ghsa_id"]:
+                    return second
+                if path == REPO + "/" + second["ghsa_id"] + "/comments?per_page=100":
+                    return []
+                if path == REPO + "/" + self.item["ghsa_id"] + "/comments?per_page=100":
+                    raise Incomplete("pagination")
+                return super().request(method, path, data)
+        f = Multi()
+        with self.assertRaises(Refusal):
+            process(f, True)
+        self.assertEqual(f.writes, [(REPO + "/" + second["ghsa_id"] + "/comments", {"body": ACK})])
     def test_state_change(self):
         class Race(Fake):
             reads = 0
@@ -197,7 +249,12 @@ if __name__ == "__main__":
         unittest.main(argv=[sys.argv[0]])
     elif sys.argv[1:] == ["--poll"] and os.getenv("SRA_ENABLED") == "yes":
         try:
-            process(API(os.environ.get("SRA_TOKEN")), live=True)
+            login = os.environ["SRA_ACTOR_LOGIN"].lower()
+            ident = int(os.environ["SRA_ACTOR_ID"])
+            if not login or ident <= 0:
+                raise Refusal("expected actor missing")
+            process(API(os.environ.get("SRA_TOKEN")), live=True,
+                    expected_actor=(login, ident))
             print("SRA cycle completed.")
         except Exception:
             # No traceback, IDs, response bodies, report contents or counts in logs.
