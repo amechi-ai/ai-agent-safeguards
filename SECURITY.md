@@ -2,6 +2,19 @@
 
 This is an experimental specification and in-process Python fixture, not a deployed security boundary. No production version is supported.
 
+## Scope of security research
+
+Good-faith research under this policy covers the project's published safeguard protocol, technical specification, reference-model source code and synthetic test fixtures, when assessed in isolated environments controlled by the researcher or expressly authorised for the test. Relevant findings include:
+
+- Bypasses of reference-model authorisation or enforcement checks.
+- Demonstrated manipulation of an agent into unauthorised actions, collaboration or delegation despite the proposed safeguards, using isolated synthetic agents or expressly authorised test environments.
+- Material specification ambiguities or omissions that permit unsafe delegation, unauthorised collaboration or other security-relevant behaviour.
+- Unsupported or misleading security assurance and validation claims.
+
+Report sensitive or exploitable findings privately. Non-sensitive design criticisms, specification ambiguities and evidence-quality concerns may be raised in public issues; alternative governance approaches may be discussed in GitHub Discussions, and editorial corrections may be proposed through issues or pull requests. When uncertain about sensitivity, use a private reporting channel first.
+
+The scope does not authorise testing production systems, live third-party services, other people's agents, maintainer accounts, reporting infrastructure or client environments. Separate explicit permission from the relevant system owner is required. Report vulnerabilities in other providers' systems through their authorised disclosure channels. A test result against the experimental model does not by itself establish a vulnerability in a deployed product.
+
 ## Good-faith security research and safe harbour
 
 We welcome and authorise good-faith security research conducted within the scope and conditions of this policy.
