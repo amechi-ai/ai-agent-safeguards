@@ -5,7 +5,7 @@ import re
 import sys
 import unittest
 import urllib.request
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit, parse_qs
 
 BASE = "https://api.github.com"
 REPO = "/repos/amechi-ai/ai-agent-safeguards/security-advisories"
@@ -18,6 +18,7 @@ ACK = ("Thank you for submitting your report to the AI Agent Safeguards initiati
 ID = re.compile(r"GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}", re.ASCII)
 LIMIT = 100
 MAX_WRITES = 10
+MAX_PAGES = 5
 
 class Refusal(Exception):
     pass
@@ -37,7 +38,7 @@ class API:
         self.opener = urllib.request.build_opener(
             urllib.request.ProxyHandler({}), NoRedirect())
 
-    def request(self, method, path, data=None):
+    def request(self, method, path, data=None, advisory_page=False):
         # Endpoints are constructed locally, never followed from response links.
         if not (method == "GET" and path == "/user") and (
             not path.startswith(REPO) or method not in ("GET", "POST")
@@ -66,9 +67,64 @@ class API:
             if len(raw) > 8 * 1024 * 1024:
                 raise Incomplete("response size limit")
             result = json.loads(raw)
-            if 'rel="next"' in response.headers.get("Link", ""):
+            link = response.headers.get("Link", "")
+            if advisory_page:
+                return result, next_cursor(link)
+            if 'rel="next"' in link:
                 raise Incomplete("pagination requires human review")
             return result
+
+    def list_page(self, cursor=None):
+        return self.request("GET", page_path(cursor), advisory_page=True)
+
+def page_path(cursor=None):
+    params = {"state": "triage", "per_page": LIMIT, "sort": "created", "direction": "asc"}
+    if cursor is not None:
+        params["after"] = cursor
+    return REPO + "?" + urlencode(params)
+
+def next_cursor(link):
+    # Extract only the documented cursor; never follow a response-supplied URL.
+    matches = re.findall(r'<([^<>]+)>\s*;\s*rel="next"', link)
+    if not matches:
+        if 'rel="next"' in link:
+            raise Incomplete("invalid pagination metadata")
+        return None
+    if len(matches) != 1:
+        raise Incomplete("ambiguous pagination metadata")
+    u = urlsplit(matches[0])
+    if u.scheme != "https" or u.netloc != "api.github.com" or u.path != REPO or u.fragment:
+        raise Incomplete("unexpected pagination endpoint")
+    q = parse_qs(u.query, keep_blank_values=True)
+    values = q.get("after", [])
+    if len(values) != 1 or not re.fullmatch(r"[A-Za-z0-9_+/=\-]{1,2048}", values[0]):
+        raise Incomplete("invalid pagination cursor")
+    return values[0]
+
+def list_bounded(api):
+    items = []
+    cursor = None
+    seen = set()
+    incomplete = False
+    for _ in range(MAX_PAGES):
+        try:
+            page, following = api.list_page(cursor)
+            if not isinstance(page, list) or len(page) > LIMIT:
+                raise Incomplete("invalid advisory page")
+        except Incomplete:
+            incomplete = True
+            break
+        items.extend(page)
+        if following is None:
+            break
+        if following in seen:
+            incomplete = True
+            break
+        seen.add(following)
+        cursor = following
+    else:
+        incomplete = True
+    return items, incomplete
 
 def eligible(item):
     return (isinstance(item, dict)
@@ -104,13 +160,9 @@ def already_acknowledged(comments, actor):
 
 def process(api, live=False, expected_actor=TEST_ACTOR):
     actor = verified_actor(api, expected_actor)
-    items = api.request("GET", REPO + "?" + urlencode(
-        {"state": "triage", "per_page": LIMIT}))
-    if not isinstance(items, list) or len(items) >= LIMIT:
-        raise Refusal("advisory list incomplete")
+    items, incomplete = list_bounded(api)
     visited = set()
     writes = 0
-    incomplete = False
     for item in items:
         if not eligible(item):
             continue
@@ -141,13 +193,15 @@ def process(api, live=False, expected_actor=TEST_ACTOR):
         api.request("POST", path + "/comments", {"body": ACK})
         writes += 1
     if incomplete:
-        raise Refusal("one or more advisory comment lists incomplete; owner review required")
+        raise Refusal("advisory queue or comment list incomplete; owner review required")
 
 class Fake:
     def __init__(self, item=None, comments=None):
         self.item = item if item is not None else fixture()
         self.comments = comments if comments is not None else []
         self.writes = []
+    def list_page(self, cursor=None):
+        return self.request("GET", page_path(cursor)), None
     def request(self, method, path, data=None):
         if path == "/user":
             return {"login": TEST_ACTOR[0], "id": TEST_ACTOR[1]}
@@ -228,6 +282,45 @@ class Tests(unittest.TestCase):
         with self.assertRaises(Refusal):
             process(f, True)
         self.assertEqual(f.writes, [(REPO + "/" + second["ghsa_id"] + "/comments", {"body": ACK})])
+    def test_large_queue_processes_later_page(self):
+        second = dict(fixture(), ghsa_id="GHSA-1111-2222-3333")
+        class Paged(Fake):
+            def list_page(self, cursor=None):
+                if cursor is None:
+                    return [self.item] * LIMIT, "page2"
+                return [second], None
+            def request(self, method, path, data=None):
+                if method == "GET" and path == REPO + "/" + second["ghsa_id"]:
+                    return second
+                if method == "GET" and path == REPO + "/" + second["ghsa_id"] + "/comments?per_page=100":
+                    return []
+                return super().request(method, path, data)
+        f = Paged()
+        process(f, True)
+        self.assertEqual(len(f.writes), 2)
+    def test_cursor_cycle_processes_known_items_then_refuses(self):
+        class Cycle(Fake):
+            def list_page(self, cursor=None):
+                return [self.item], "same"
+        f = Cycle()
+        with self.assertRaises(Refusal):
+            process(f, True)
+        self.assertEqual(len(f.writes), 1)
+    def test_page_budget_is_bounded(self):
+        class Endless(Fake):
+            calls = 0
+            def list_page(self, cursor=None):
+                self.calls += 1
+                return [self.item], str(self.calls)
+        f = Endless()
+        with self.assertRaises(Refusal):
+            process(f, True)
+        self.assertEqual(f.calls, MAX_PAGES)
+        self.assertEqual(len(f.writes), 1)
+    def test_cursor_endpoint_guard(self):
+        self.assertEqual(next_cursor('<https://api.github.com' + REPO + '?after=abc%3D>; rel="next"'), "abc=")
+        with self.assertRaises(Incomplete):
+            next_cursor('<https://example.invalid' + REPO + '?after=abc>; rel="next"')
     def test_state_change(self):
         class Race(Fake):
             reads = 0
