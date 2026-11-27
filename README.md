@@ -1,6 +1,12 @@
-# The AI Swarm: So Good at Being Bad — supporting materials
+# AI Agent Safeguards
+
+**Agent Authority and Collaboration Safeguards: a behavioural protocol, technical safeguard requirements and a Python reference model for governing AI agents.**
+
+What should happen when an AI agent receives an instruction that exceeds its authority? This experimental, research-stage initiative works through how governance principles on agent authority and collaboration can be translated into technically enforceable controls. It contains nine behavioural clauses, 12 technical requirements with a threat model, 37 proposed implementation scenarios, a Python reference model with 11 in-process tests, and an independent AI-assisted review of an earlier revision.
 
 Experimental AI agent governance initiative. These materials are for scrutiny, controlled testing and improvement, not a deployed security product or a guarantee of protection.
+
+Origin: these are the supporting materials for the article [The AI Swarm: So Good at Being Bad](https://www.linkedin.com/pulse/ai-swarm-so-good-being-bad-amechi-isiekwena-opfmc). The protocol and reference model were developed under the author's direction with AI assistance, as the article describes.
 
 ## Contents
 - `Agent_Authority_Safeguards_Review_Pack_v0_4.md`: original nine behavioural clauses, 12 technical requirements, threat model, coverage map, 37 implementation scenarios, reconciliation of Validator findings, evidence and limitations. Only the private library link to the Python model was replaced by a relative link for portability.
@@ -16,6 +22,8 @@ In an isolated local environment with Python 3, run:
 ```sh
 python3 -I safeguard_prototype.py -v
 ```
+
+The review pack and the model's docstring record slightly different invocations (`-q`, and without `-I`). Those files are preserved unchanged as evidence; the command above is the recommended one.
 
 No external dependencies are required. Do not deploy this in-process fixture as an agent security boundary. Use synthetic data, test identities and isolated environments for future adversarial testing; avoid real credentials and live third-party effects.
 
